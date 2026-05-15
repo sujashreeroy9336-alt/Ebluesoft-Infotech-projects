@@ -1,138 +1,143 @@
-# main.py - Full working version without bcrypt
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, Depends, HTTPException  # type: ignore[import]
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel
+from sqlalchemy import create_engine, Column, String
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, Session
+from passlib.context import CryptContext
+from jose import jwt, JWTError
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Set
-from jose import JWTError, jwt
-import hashlib
+import uuid
+import os
 import uvicorn
 
-app = FastAPI(title="JWT Authentication API")
-
-# Configuration
-SECRET_KEY = "your-super-secret-key-change-this"
+SECRET_KEY = os.getenv("SECRET_KEY", "CHANGE_THIS_IN_PRODUCTION")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = 15
 
-# Security
+DATABASE_URL = "sqlite:///./auth.db"
+
+# ================= DB SETUP =================
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(bind=engine)
+Base = declarative_base()
+
+class User(Base):
+    __tablename__ = "users"
+    username = Column(String, primary_key=True, index=True)
+    password = Column(String)
+    email = Column(String)
+
+class TokenBlacklist(Base):
+    __tablename__ = "blacklist"
+    jti = Column(String, primary_key=True)
+
+Base.metadata.create_all(bind=engine)
+
+# ================= APP =================
+app = FastAPI(title="Production Auth API")
 security = HTTPBearer()
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# Database
-users_db: Dict[str, dict] = {}
-blacklisted_tokens: Set[str] = set()
+# ================= UTILS =================
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
-# Models
-class UserRegister(BaseModel):
-    username: str
-    password: str
-    email: Optional[str] = None
+def hash_password(password: str):
+    return pwd_context.hash(password)
 
-class UserLogin(BaseModel):
-    username: str
-    password: str
+def verify_password(plain, hashed):
+    return pwd_context.verify(plain, hashed)
 
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str
-    expires_in: int
-
-# Helper functions
-def hash_password(password: str) -> str:
-    """Simple password hashing (not as secure as bcrypt but works)"""
-    return hashlib.sha256(password.encode()).hexdigest()
-
-def verify_password(plain: str, hashed: str) -> bool:
-    """Verify password"""
-    return hash_password(plain) == hashed
-
-def create_token(username: str) -> tuple:
-    """Create JWT token"""
+def create_access_token(username: str):
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    token = jwt.encode(
-        {"sub": username, "exp": expire},
-        SECRET_KEY,
-        algorithm=ALGORITHM
-    )
-    return token, expire
+    jti = str(uuid.uuid4())
 
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Get current user from token"""
+    payload = {
+        "sub": username,
+        "exp": expire,
+        "jti": jti
+    }
+
+    token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    return token, jti
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+):
     token = credentials.credentials
-    
-    # Check if blacklisted
-    if token in blacklisted_tokens:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token has been revoked"
-        )
-    
+
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username = payload.get("sub")
-        if username is None:
+        jti = payload.get("jti")
+
+        if not username:
             raise HTTPException(status_code=401, detail="Invalid token")
-        return username
+
+        # Check blacklist
+        if db.query(TokenBlacklist).filter_by(jti=jti).first():
+            raise HTTPException(status_code=401, detail="Token revoked")
+
+        return {"username": username, "jti": jti}
+
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-# API Endpoints
+# ================= ROUTES =================
+
 @app.post("/register")
-def register(user: UserRegister):
-    """Register a new user"""
-    if user.username in users_db:
-        raise HTTPException(status_code=400, detail="Username already exists")
-    
-    users_db[user.username] = {
-        "username": user.username,
-        "password": hash_password(user.password),
-        "email": user.email,
-        "created_at": datetime.now().isoformat()
-    }
-    
-    return {"message": "User registered successfully", "username": user.username}
+def register(username: str, password: str, email: str = None, db: Session = Depends(get_db)):
+    if db.query(User).filter_by(username=username).first():
+        raise HTTPException(status_code=400, detail="User exists")
 
-@app.post("/login", response_model=TokenResponse)
-def login(user: UserLogin):
-    """Login and get access token"""
-    if user.username not in users_db:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    
-    if not verify_password(user.password, users_db[user.username]["password"]):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    
-    token, expire = create_token(user.username)
-    
-    return TokenResponse(
-        access_token=token,
-        token_type="bearer",
-        expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    user = User(
+        username=username,
+        password=hash_password(password),
+        email=email
     )
+    db.add(user)
+    db.commit()
 
-@app.post("/logout")
-def logout(current_user: str = Depends(get_current_user), 
-           credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Logout - invalidate the token"""
-    blacklisted_tokens.add(credentials.credentials)
-    return {"message": f"User {current_user} logged out successfully"}
+    return {"message": "User created"}
 
-@app.get("/protected")
-def protected_route(current_user: str = Depends(get_current_user)):
-    """Example protected route"""
+@app.post("/login")
+def login(username: str, password: str, db: Session = Depends(get_db)):
+    user = db.query(User).filter_by(username=username).first()
+
+    if not user or not verify_password(password, user.password):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    token, _ = create_access_token(username)
+
     return {
-        "message": f"Hello {current_user}! You have access to this protected resource",
-        "timestamp": datetime.now().isoformat()
+        "access_token": token,
+        "token_type": "bearer"
     }
 
 @app.get("/me")
-def get_my_info(current_user: str = Depends(get_current_user)):
-    """Get current user information"""
-    user = users_db.get(current_user)
+def get_me(current=Depends(get_current_user), db: Session = Depends(get_db)):
+    user = db.query(User).filter_by(username=current["username"]).first()
+
     return {
-        "username": user["username"],
-        "email": user.get("email"),
-        "created_at": user["created_at"]
+        "username": user.username,
+        "email": user.email
     }
+
+@app.post("/logout")
+def logout(current=Depends(get_current_user), db: Session = Depends(get_db)):
+    db.add(TokenBlacklist(jti=current["jti"]))
+    db.commit()
+
+    return {"message": "Logged out successfully"}
+
+@app.get("/protected")
+def protected(current=Depends(get_current_user)):
+    return {"message": f"Hello {current['username']}"}
 
 @app.get("/")
 def root():
@@ -141,15 +146,35 @@ def root():
         "version": "1.0",
         "endpoints": {
             "register": "POST /register",
-            "login": "POST /login",
+            "login": "POST /login", 
             "logout": "POST /logout",
             "protected": "GET /protected",
-            "my_info": "GET /me"
+            "me": "GET /me"
         }
     }
 
+@app.delete("/delete-account")
+def delete_account(
+    current=Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    user = db.query(User).filter_by(username=current["username"]).first()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Delete user
+    db.delete(user)
+
+    # Also blacklist current token (logout effect)
+    db.add(TokenBlacklist(jti=current["jti"]))
+
+    db.commit()
+
+    return {"message": f"User {current['username']} deleted successfully"}
+
 if __name__ == "__main__":
-    print("🚀 Starting Authentication Server...")
-    print("📖 API Docs: http://localhost:8000/docs")
-    print("🔑 Try: POST /register then POST /login")
+    print("🚀 Server running at http://localhost:8000")
+    print("📖 Docs: http://localhost:8000/docs")
+    print("🔑 Click the 'Authorize' button at the top to add your token!")
     uvicorn.run(app, host="0.0.0.0", port=8000)
