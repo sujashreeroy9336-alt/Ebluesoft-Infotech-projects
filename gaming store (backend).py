@@ -265,11 +265,11 @@ async def serve_frontend():
 
 if __name__ == "__main__":
     print("\n" + "="*60)
-    print("🎮 GAME STORE API STARTING...")
+    print("GAME STORE API STARTING...")
     print("="*60)
-    print("📍 Server: http://127.0.0.1:8000")
-    print("📖 API Docs: http://127.0.0.1:8000/docs")
-    print("🔍 Debug: http://127.0.0.1:8000/api/debug")
+    print("Server: http://127.0.0.1:8000")
+    print("API Docs: http://127.0.0.1:8000/docs")
+    print("Debug: http://127.0.0.1:8000/api/debug")
     print("="*60 + "\n")
     
     uvicorn.run(app, host="127.0.0.1", port=8000)
