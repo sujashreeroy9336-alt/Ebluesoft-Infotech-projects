@@ -1,0 +1,116 @@
+---
+title: "score visualization"
+author: "Sujashree Roy"
+date: "2026-05-25"
+output: html_document
+---
+
+```{r}
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+data <- read_excel("~/Downloads/SCORES.xlsx")
+colnames(data) <- data[2,]
+data <- data[-c(1,2),]
+head(data)
+```
+
+
+```{r}
+top3 <- data %>% slice_head(n = 3)
+data$`Total Score` <- as.numeric(data$`Total Score`)
+top3$`Total Score` <- as.numeric(top3$`Total Score`)
+eblue = data[46,]
+eblue
+ggplot(top3, aes(x = `Company`, y = `Total Score`, fill = `Company`)) +
+  geom_bar(stat = "identity") +
+  geom_hline(yintercept = as.numeric(eblue$`Total Score`), linetype = "dashed", color = "red") +
+  annotate("text", x = 1.5, y = as.numeric(eblue$`Total Score`) + 5, label = "Eblue Score", color = "red") +
+  labs(title = "Top 3 Teams by Total Score", x = "Team Name", y = "Total Score") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+top5 = data %>% slice_head(n = 5)
+```
+
+
+```{r}
+# Load libraries
+library(fmsb)
+library(scales)
+
+# Create the data frame
+data <- data.frame(
+  row.names = c("Max", "Min", "eBluesoft", "Dotsquares", "TechAhead Corp", "Aubergine Solutions"),
+  
+  Digital_Marketing = c(5, 1, 4, 5, 4, 4),
+  AI_Solutions = c(5, 1, 2, 5, 5, 5),
+  SEO = c(5, 1, 4, 5, 5, 4),
+  Web_Development = c(5, 1, 4, 5, 5, 5),
+  App_Development = c(5, 1, 4, 5, 5, 5),
+  Graphic_Design = c(5, 1, 3, 4, 5, 5),
+  Client_Strength = c(5, 1, 3, 5, 5, 5),
+  Experience = c(5, 1, 4, 5, 4, 4)
+)
+
+# Define pretty colors (semi-transparent fill + solid lines)
+colors_fill <- c(alpha("#1E88E5", 0.35),   # eBluesoft - Blue
+                 alpha("#E53935", 0.35),   # Dotsquares - Red
+                 alpha("#43A047", 0.35),   # TechAhead - Green
+                 alpha("#FB8C00", 0.35))   # Aubergine - Orange
+
+colors_line <- c("#1E88E5", "#E53935", "#43A047", "#FB8C00")
+
+# Set graphic parameters for a cleaner look
+par(mar = c(1, 1, 3, 1),   # margins (bottom, left, top, right)
+    bg = "#FAFAFA",        # light grey background
+    family = "sans")       # clean font
+
+# Create the radar chart
+radarchart(data,
+           axistype = 1,
+           
+           # Grid settings
+           cglcol = "#BDBDBD",     # grid line color
+           cglty = 1,             # solid lines
+           cglwd = 0.8,           # line width
+           
+           # Axis settings
+           axislabcol = "#757575", # axis label color
+           caxislabels = c("1", "2", "3", "4", "5"),
+           calcex = 0.8,          # axis label size
+           
+           # Polygon settings
+           pcol = colors_line,
+           pfcol = colors_fill,
+           plwd = 2.5,            # thicker lines
+           plty = 1,              # solid
+           
+           # Title
+           title = "",
+           vlcex = 1.0)           # variable label size
+
+# Add custom title
+title(main = "Competitor Benchmark: eBluesoft vs Top 3",
+      sub = "Scores (1 = Low, 5 = High)",
+      cex.main = 1.5,
+      cex.sub = 0.9,
+      col.main = "#333333",
+      font.main = 2)
+
+# Add legend (positioned bottom right)
+legend(x = 1.05, y = -0.05,
+       legend = c("eBluesoft", "Dotsquares", "TechAhead Corp", "Aubergine Solutions"),
+       bty = "n",
+       pch = 15,
+       col = colors_line,
+       text.col = "#333333",
+       cex = 0.9,
+       pt.cex = 1.5,
+       xpd = TRUE)
+
+# Optional: Add a subtle note
+mtext("Source: Internal Competitor Analysis | Based on Clutch & Website Data", 
+      side = 1, line = 2, cex = 0.7, col = "#999999")
+```

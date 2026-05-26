@@ -1,0 +1,208 @@
+---
+title: "Report on Web Development Companiese"
+author: "Sujashree Roy"
+date: "2026-05-25"
+output: html_document
+---
+
+
+VISUALIZATION FOR WEB DEVELOPMENT
+
+```{r}
+# =========================
+# 1. Load Libraries
+# =========================
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(ggplot2)
+
+# =========================
+# 2. Load Excel File
+# =========================
+data <- read_excel("~/Downloads/WEB DEV.xlsx")
+
+#Set the first row as column names now
+colnames(data) <- data[1, ]
+
+# Check column names
+colnames(data)
+```
+
+```{r}
+# =========================
+# 3. Clean & Split Industries
+# =========================
+data_clean <- data %>%
+  separate_rows(Industries, sep = ",") %>%   # split multiple industries
+  mutate(Industries = str_trim(Industries))  # remove spaces
+
+# =========================
+# 4. Create Industry Categories
+# =========================
+data_clean <- data_clean %>%
+  mutate(Industry_Category = case_when(
+    
+    str_detect(Industries, regex("Retail|Fashion|eCommerce", ignore_case = TRUE)) ~ "eCommerce",
+    
+    str_detect(Industries, regex("SaaS|Software|IT|Tech", ignore_case = TRUE)) ~ "IT/Software",
+    
+    str_detect(Industries, regex("Healthcare|Medical|Pharma", ignore_case = TRUE)) ~ "Healthcare",
+    
+    str_detect(Industries, regex("Finance|Banking|FinTech", ignore_case = TRUE)) ~ "Finance",
+    
+    str_detect(Industries, regex("Real Estate|Property", ignore_case = TRUE)) ~ "Real Estate",
+    
+    str_detect(Industries, regex("Education|EdTech", ignore_case = TRUE)) ~ "Education",
+    
+    str_detect(Industries, regex("Marketing|Advertising|Media", ignore_case = TRUE)) ~ "Marketing",
+    
+    str_detect(Industries, regex("Travel|Tourism|Hospitality", ignore_case = TRUE)) ~ "Travel & Hospitality",
+    
+    str_detect(Industries, regex("Logistics|Supply Chain", ignore_case = TRUE)) ~ "Logistics",
+    
+    str_detect(Industries, regex("Manufacturing|Industrial", ignore_case = TRUE)) ~ "Manufacturing",
+    
+    str_detect(Industries, regex("Sports", ignore_case = TRUE)) ~ "Sports",
+    
+    str_detect(Industries, regex("Automotive", ignore_case = TRUE)) ~ "Automotive",
+    
+    str_detect(Industries, regex("Food|Restaurant|Beverage|F&B", ignore_case = TRUE)) ~ "Food & Beverage",
+    
+    str_detect(Industries, regex("Gaming|Game", ignore_case = TRUE)) ~ "Gaming",
+    
+    str_detect(Industries, regex("Energy|Oil|Gas", ignore_case = TRUE)) ~ "Energy",
+    
+    str_detect(Industries, regex("Insurance", ignore_case = TRUE)) ~ "Insurance",
+    
+    str_detect(Industries, regex("Government", ignore_case = TRUE)) ~ "Government",
+    
+    TRUE ~ "Other"
+  ))
+
+# =========================
+# 5. REMOVE DUPLICATES (VERY IMPORTANT)
+# =========================
+data_unique <- data_clean %>%
+  distinct(data_clean$`Company Name`, Industry_Category)
+
+# =========================
+# 6. Count Industries (Correct Way)
+# =========================
+industry_counts <- data_unique %>%
+  count(Industry_Category, sort = TRUE)
+industry_counts_filtered <- industry_counts %>%
+  filter(Industry_Category != "Other")
+print(industry_counts_filtered)
+```
+
+```{r}
+# =========================
+# 7. Plot Industry Distribution
+# =========================
+ggplot(industry_counts_filtered, aes(x = reorder(Industry_Category, n), y = n)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Industry Distribution (Unique Companies)",
+       x = "Industry",
+       y = "Number of Companies")
+
+# =========================
+# 8. (Optional) Check what's inside "Other"
+# =========================
+data_clean %>%
+  filter(Industry_Category == "Other") %>%
+  count(Industries, sort = TRUE)
+```
+
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(stringr)
+
+clients_clean <- data %>%
+  separate_rows(Clients, sep = ",") %>%   # split multiple clients
+  mutate(Clients = str_trim(Clients))     # remove spaces
+```
+
+```{r}
+unique_clients <- clients_clean %>%
+  distinct(Clients)
+print(unique_clients)
+nrow(unique_clients)
+unique_clients <- clients_clean %>%
+  filter(!str_detect(Clients, regex("startup|sme|small|medium|enterprise|business", ignore_case = TRUE))) %>%
+  distinct(Clients)
+top_clients <- clients_clean %>%
+  count(Clients, sort = TRUE)
+
+print(top_clients)
+```
+
+```{r}
+top_clients <- clients_clean %>%
+  count(Clients, sort = TRUE) %>%
+  filter(n > 1) %>%   # remove single mentions
+  slice_head(n = 10)
+
+num_clients <- nrow(unique_clients)
+client_freq <- clients_clean %>%
+  count(Clients)
+print(paste("Total Unique Clients:", num_clients))
+
+ggplot(client_freq, aes(x = n)) +
+  geom_histogram(binwidth = 1, fill = "#F58518") +
+  theme_minimal() +
+  labs(title = "Client Frequency Distribution",
+       x = "Number of Mentions",
+       y = "Number of Clients")
+
+library(ggplot2)
+
+top_clients <- clients_clean %>%
+  count(Clients, sort = TRUE) %>%
+  slice_head(n = 10)
+
+top_clients <- top_clients %>%
+  filter(!str_detect(Clients, regex("startup|sme|small|medium|enterprise|business", ignore_case = TRUE)))
+ggplot(top_clients, aes(x = reorder(Clients, n), y = n)) +
+  geom_bar(stat = "identity", fill = "#F58518") +
+  coord_flip() +
+  theme_minimal() + 
+  labs(title = "Top 10 Clients (Excluding Generic Terms)",
+       x = "Client",
+       y = "Number of Mentions")
+```
+
+
+```{r}
+# Count unique companies per industry
+company_count <- data_unique %>%
+  count(Industry_Category)
+
+# Count total mentions (demand)
+demand_count <- data_clean %>%
+  count(Industry_Category)
+
+# Merge both
+industry_analysis <- merge(company_count, demand_count, by = "Industry_Category")
+
+colnames(industry_analysis) <- c("Industry", "Companies", "Demand")
+
+# Remove 'Other'
+industry_analysis_clean <- industry_analysis %>%
+  filter(Industry != "Other")
+
+# Plot
+library(ggrepel)
+
+ggplot(industry_analysis_clean, aes(x = Companies, y = Demand, label = Industry)) +
+  geom_point(size = 4, color = "#4C78A8") +
+  geom_text_repel() +
+  theme_minimal() +
+  labs(title = "Industry Opportunity Matrix",
+       x = "Competition",
+       y = "Demand")
+```
