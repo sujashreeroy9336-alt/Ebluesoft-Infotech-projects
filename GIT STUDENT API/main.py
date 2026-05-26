@@ -1,0 +1,149 @@
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware  # ADD THIS
+from pydantic import BaseModel
+from typing import Dict
+import uvicorn
+
+# Create the FastAPI app
+app = FastAPI()
+
+# ADD CORS MIDDLEWARE (put this RIGHT AFTER creating the app)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins for development
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all HTTP methods
+    allow_headers=["*"],  # Allows all headers
+)
+
+# Define what a Student looks like
+class Student(BaseModel):
+    roll_number: int
+    name: str
+    password: str
+    email: str
+
+# This ensures roll_number is automatically unique 
+database: Dict[int, Student] = {}
+
+# CREATE
+@app.post("/students")
+def create_student(student: Student):
+    # Check if roll_number already exists
+    if student.roll_number in database:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Roll number {student.roll_number} already exists. Roll numbers must be unique."
+        )
+    
+    # Save to database using roll_number as the key
+    database[student.roll_number] = student
+    
+    return {
+        "message": "Student created successfully",
+        "student": student
+    }
+
+# GET ALL
+@app.get("/students")
+def get_all_students():
+    safe_students = []
+    for student in database.values():
+        safe_students.append({
+            "roll_number": student.roll_number,
+            "name": student.name,
+            "email": student.email
+        })
+    return safe_students
+
+# GET ONE 
+@app.get("/students/{roll_number}")
+def get_student(roll_number: int):
+    # Check if student exists
+    if roll_number not in database:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Student with roll number {roll_number} not found"
+        )
+    
+    student = database[roll_number]
+    # Return without password for security
+    return {
+        "roll_number": student.roll_number,
+        "name": student.name,
+        "email": student.email
+    }
+
+# UPDATE 
+@app.put("/students/{roll_number}")
+def update_student(roll_number: int, student: Student):
+    # Check if the student exists
+    if roll_number not in database:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Student with roll number {roll_number} not found"
+        )
+    
+    # If the roll_number in the URL is different from the one in the request body
+    if roll_number != student.roll_number:
+        # Check if the new roll_number already exists
+        if student.roll_number in database:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Cannot change to roll number {student.roll_number} because it already exists"
+            )
+        
+        # Delete the old entry and add the new one
+        del database[roll_number]
+        database[student.roll_number] = student
+    else:
+        # Same roll_number, just update the data
+        database[roll_number] = student
+    
+    return {
+        "message": "Student updated successfully",
+        "student": student
+    }
+
+# DELETE
+@app.delete("/students/{roll_number}")
+def delete_student(roll_number: int):
+    # Check if student exists
+    if roll_number not in database:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Student with roll number {roll_number} not found"
+        )
+    
+    # Get the student data before deleting
+    deleted_student = database[roll_number]
+    
+    # Delete from database
+    del database[roll_number]
+    
+    return {
+        "message": "Student deleted successfully",
+        "deleted_student": {
+            "roll_number": deleted_student.roll_number,
+            "name": deleted_student.name,
+            "email": deleted_student.email
+        }
+    }
+
+# Root endpoint
+@app.get("/")
+def root():
+    return {
+        "api": "Student Management API",
+        "version": "1.0",
+        "status": "running",
+        "total_students": len(database)
+    }
+
+if __name__ == "__main__":
+    print("=" * 50)
+    print("🎓 Student Management Server running")
+    print("📖 API Docs: http://localhost:8000/docs")
+    print("📍 Server: http://localhost:8000")
+    print("=" * 50)
+    uvicorn.run(app, host="0.0.0.0", port=8000)

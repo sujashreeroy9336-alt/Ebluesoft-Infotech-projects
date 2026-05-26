@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auth API Demo</title>
+    <style>
+        body { font-family: Arial; padding: 20px; background: linear-gradient(135deg, #eacaf3 0%, #764ba2 100%); min-height: 100vh; }
+        .container { max-width: 600px; margin: auto; }
+        .card { background: white; padding: 20px; margin: 20px 0; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        input { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
+        button { background: #9f559f; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin: 5px; }
+        button:hover { background: #9f559f; }
+        .response { background: #f8f9fa; padding: 10px; margin-top: 10px; border-radius: 5px; font-family: monospace; font-size: 12px; overflow-x: auto; }
+        .error { color: red; border-left: 3px solid red; padding-left: 10px; }
+        .success { color: green; border-left: 3px solid green; padding-left: 10px; }
+        .status { background: white; padding: 15px; border-radius: 10px; margin-bottom: 20px; text-align: center; }
+        h1 { text-align: center; color: white; }
+        h2 { margin-top: 0; color: #333; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1> JWT Authentication Demo</h1>
+        
+        <div class="status" id="status">
+            Status: <strong id="statusText">Not logged in</strong>
+        </div>
+        
+        <div class="card">
+            <h2> Register</h2>
+            <input type="text" id="regUsername" placeholder="Username">
+            <input type="password" id="regPassword" placeholder="Password">
+            <input type="email" id="regEmail" placeholder="Email (optional)">
+            <button onclick="register()">Register</button>
+            <div id="regResponse" class="response"></div>
+        </div>
+        
+        <div class="card">
+            <h2> Login</h2>
+            <input type="text" id="loginUsername" placeholder="Username">
+            <input type="password" id="loginPassword" placeholder="Password">
+            <button onclick="login()">Login</button>
+            <div id="loginResponse" class="response"></div>
+        </div>
+        
+        <div class="card">
+            <h2> Protected Routes</h2>
+            <button onclick="getProtected()">Get Protected Message</button>
+            <button onclick="getUserInfo()">Get My Info</button>
+            <button onclick="logout()" style="background:#dc3545;">Logout</button>
+            <div id="protectedResponse" class="response"></div>
+        </div>
+    </div>
+    
+    <script>
+        const API_URL = 'http://localhost:8000';
+        let token = localStorage.getItem('token');
+        
+        if (token) {
+            document.getElementById('statusText').innerHTML = 'Logged in ✅';
+        }
+        
+        async function register() {
+            const username = document.getElementById('regUsername').value;
+            const password = document.getElementById('regPassword').value;
+            const email = document.getElementById('regEmail').value;
+            
+            if (!username || !password) {
+                showResponse('regResponse', {error: 'Username and password required'}, false);
+                return;
+            }
+            
+            const body = { username, password };
+            if (email) body.email = email;
+            
+            try {
+                const res = await fetch(`${API_URL}/register`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(body)
+                });
+                const data = await res.json();
+                showResponse('regResponse', data, res.ok);
+                if (res.ok) {
+                    document.getElementById('regUsername').value = '';
+                    document.getElementById('regPassword').value = '';
+                    document.getElementById('regEmail').value = '';
+                }
+            } catch (err) {
+                showResponse('regResponse', {error: err.message}, false);
+            }
+        }
+        
+        async function login() {
+            const username = document.getElementById('loginUsername').value;
+            const password = document.getElementById('loginPassword').value;
+            
+            if (!username || !password) {
+                showResponse('loginResponse', {error: 'Username and password required'}, false);
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API_URL}/login`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({username, password})
+                });
+                const data = await res.json();
+                
+                if (res.ok) {
+                    token = data.access_token;
+                    localStorage.setItem('token', token);
+                    document.getElementById('statusText').innerHTML = 'Logged in ✅';
+                    showResponse('loginResponse', {success: 'Logged in successfully!', token: token.substring(0, 50) + '...'}, true);
+                    document.getElementById('loginUsername').value = '';
+                    document.getElementById('loginPassword').value = '';
+                } else {
+                    showResponse('loginResponse', data, false);
+                }
+            } catch (err) {
+                showResponse('loginResponse', {error: err.message}, false);
+            }
+        }
+        
+        async function getProtected() {
+            if (!token) {
+                showResponse('protectedResponse', {error: 'Please login first'}, false);
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API_URL}/protected`, {
+                    headers: {'Authorization': `Bearer ${token}`}
+                });
+                const data = await res.json();
+                showResponse('protectedResponse', data, res.ok);
+            } catch (err) {
+                showResponse('protectedResponse', {error: err.message}, false);
+            }
+        }
+        
+        async function getUserInfo() {
+            if (!token) {
+                showResponse('protectedResponse', {error: 'Please login first'}, false);
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API_URL}/me`, {
+                    headers: {'Authorization': `Bearer ${token}`}
+                });
+                const data = await res.json();
+                showResponse('protectedResponse', data, res.ok);
+            } catch (err) {
+                showResponse('protectedResponse', {error: err.message}, false);
+            }
+        }
+        
+        async function logout() {
+            if (!token) {
+                showResponse('protectedResponse', {message: 'Already logged out'}, true);
+                return;
+            }
+            
+            try {
+                await fetch(`${API_URL}/logout`, {
+                    method: 'POST',
+                    headers: {'Authorization': `Bearer ${token}`}
+                });
+            } catch (err) {}
+            
+            token = null;
+            localStorage.removeItem('token');
+            document.getElementById('statusText').innerHTML = 'Not logged in';
+            showResponse('protectedResponse', {message: 'Logged out successfully'}, true);
+        }
+        
+        function showResponse(elementId, data, isSuccess) {
+            const el = document.getElementById(elementId);
+            const className = isSuccess ? 'success' : 'error';
+            el.innerHTML = `<pre class="${className}">${JSON.stringify(data, null, 2)}</pre>`;
+            
+            // Auto clear after 5 seconds for success
+            if (isSuccess) {
+                setTimeout(() => {
+                    if (el.innerHTML.includes(JSON.stringify(data, null, 2))) {
+                        el.innerHTML = '';
+                    }
+                }, 5000);
+            }
+        }
+        
+        // Enter key support
+        document.getElementById('regPassword').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') register();
+        });
+        document.getElementById('loginPassword').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') login();
+        });
+    </script>
+</body>
+</html>
