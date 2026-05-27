@@ -1,0 +1,258 @@
+---
+title: "AI Solutions"
+author: "Sujashree Roy"
+date: "2026-05-27"
+output: html_document
+---
+
+---
+title: "seo report"
+author: "Sujashree Roy"
+date: "2026-05-27"
+output: html_document
+---
+
+```{r}
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(stringr)
+
+# Load data
+df <- read_excel("~/Desktop/Company Analysis Kolkata/Kolkata AI Soln.xlsx")
+# Clean column names
+colnames(df) <- c("Company", "Clients", "Industries", "Focus", "Scale")
+head(df)
+
+# -------------------------
+# Clean Industries Properly
+# -------------------------
+
+industry_df <- df %>%
+  separate_rows(Industries, sep = ",\\s*") %>%
+  mutate(Industries = str_trim(Industries)) %>%
+  filter(!is.na(Industries),
+         Industries != "")
+
+# -------------------------
+# Count Industries
+# -------------------------
+
+industry_count <- industry_df %>%
+  count(Industries, sort = TRUE)
+
+# -------------------------
+# TOP 10 INDUSTRIES
+# -------------------------
+
+industry_count_top10 <- industry_count %>%
+  arrange(desc(n)) %>%
+  slice(1:10)
+
+# Plot Top 10
+ggplot(industry_count_top10,
+       aes(x = reorder(Industries, n),
+           y = n)) +
+
+  geom_col(fill = "pink") +
+
+  coord_flip() +
+
+  labs(
+    title = "Top 10 Industries Served by AI Solution Companies",
+    x = "Industry",
+    y = "Number of Companies"
+  ) +
+
+  theme_minimal(base_size = 13)
+
+# -------------------------
+# BOTTOM 10 INDUSTRIES
+# -------------------------
+
+industry_count_bottom10 <- industry_count %>%
+  arrange(n) %>%
+  slice(1:10)
+
+# Print Bottom 10
+print(industry_count_bottom10)
+
+# Plot Bottom 10
+ggplot(industry_count_bottom10,
+       aes(x = reorder(Industries, n),
+           y = n)) +
+
+  geom_col(fill = "skyblue") +
+
+  coord_flip() +
+
+  labs(
+    title = "Least Crowded Industries in AI Solution",
+    x = "Industry",
+    y = "Number of Companies"
+  ) +
+
+  theme_minimal(base_size = 13)
+```
+
+
+
+```{r}
+#Plot clients in a bar chart
+library(igraph)
+# Split clients
+client_df <- df %>%
+  separate_rows(Clients, sep = ",\\s*")
+
+client_df$Clients <- str_trim(client_df$Clients)
+
+# Count most common clients
+top_clients <- client_df %>%
+  count(Clients, sort = TRUE) %>%
+  slice_head(n = 10)
+
+# Keep only top 10 clients
+filtered_df <- client_df %>%
+  filter(Clients %in% top_clients$Clients)
+
+# Create edges
+edges <- filtered_df[, c("Company", "Clients")]
+
+# Build graph
+g <- graph_from_data_frame(edges)
+
+# Plot cleaner graph
+plot(
+  g,
+  layout = layout_with_fr,
+  vertex.size = 18,
+  vertex.label.cex = 0.7,
+  vertex.color = ifelse(V(g)$name %in% top_clients$Clients,
+                        "tomato",
+                        "skyblue"),
+  edge.arrow.size = 0.3,
+  main = "Top 10 Shared Clients Network in AI Solution Companies"
+)
+```
+
+
+```{r}
+library(ggplot2)
+library(ggrepel)
+
+# Create opportunity score
+# -------------------------
+# Competition Density
+# -------------------------
+# Split focus/services into separate rows
+focus_df <- df %>%
+  separate_rows(Focus, sep = ",\\s*")
+
+# Clean spaces
+focus_df$Focus <- str_trim(focus_df$Focus)
+competition <- focus_df %>%
+  count(Focus, sort = TRUE)
+
+colnames(competition) <- c("Service", "Competition")
+
+# -------------------------
+# Market Demand
+# -------------------------
+
+demand <- focus_df %>%
+  group_by(Focus) %>%
+  summarise(
+    Demand = sum(
+      case_when(
+        Scale == "Enterprise" ~ 3,
+        Scale == "Mid" ~ 2,
+        TRUE ~ 1
+      )
+    )
+  )
+
+# -------------------------
+# Merge into Opportunity DF
+# -------------------------
+
+opportunity <- merge(
+  competition,
+  demand,
+  by.x = "Service",
+  by.y = "Focus"
+)
+
+# -------------------------
+# Opportunity Score
+# -------------------------
+
+opportunity$OpportunityScore <-
+  opportunity$Demand / opportunity$Competition
+
+# Keep top opportunities only
+opportunity <- opportunity %>%
+  arrange(desc(OpportunityScore)) %>%
+  slice_head(n = 10)
+
+# -------------------------
+# Plot
+# -------------------------
+library(ggrepel)
+
+ggplot(opportunity,
+       aes(x = Competition,
+           y = Demand,
+           size = OpportunityScore,
+           color = OpportunityScore,
+           label = Service)) +
+
+  # Add slight jitter so points separate
+  geom_point(
+    position = position_jitter(width = 0.05,
+                               height = 0.05),
+    alpha = 0.8
+  ) +
+
+  # Better label repelling
+  geom_text_repel(
+    size = 4,
+    box.padding = 0.8,
+    point.padding = 0.6,
+    segment.color = "grey50",
+    max.overlaps = Inf
+  ) +
+
+  # Quadrant lines
+  geom_vline(
+    xintercept = mean(opportunity$Competition),
+    linetype = "dashed",
+    color = "red"
+  ) +
+
+  geom_hline(
+    yintercept = mean(opportunity$Demand),
+    linetype = "dashed",
+    color = "red"
+  ) +
+
+  # Expand plot limits for spacing
+  scale_x_continuous(
+    limits = c(0.8, max(opportunity$Competition) + 0.5)
+  ) +
+
+  scale_y_continuous(
+    limits = c(0.8, max(opportunity$Demand) + 0.5)
+  ) +
+
+  labs(
+    title = "Market Opportunity Matrix",
+    subtitle = "High Demand + Low Competition = Best Opportunity",
+    x = "Competition Density",
+    y = "Market Demand",
+    size = "Opportunity",
+    color = "Opportunity"
+  ) +
+
+  theme_minimal(base_size = 14)
+```
